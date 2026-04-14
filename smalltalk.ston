@@ -1,0 +1,9 @@
+SmalltalkCISpec {
+  #loading : [
+    SCIMetacelloLoadSpec {
+      #baseline : 'PharoLLM',
+      #directory : 'src',
+      #platforms : [ #pharo ]
+    }
+  ]
+}
