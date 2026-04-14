@@ -7,6 +7,5 @@ SmalltalkCISpec {
     }
   ],
   #testing : {
-    #packages : [ 'AI-ChatPharo-Tests' 'LLM-Pharo-MCP-Tests' 'LLM-Pharo-ACP-Tests' 'LLM-HuggingFace-Tests' 'AI-PharoInfer-Tests' 'AI-ChatPharo-Tests' ]
-  }
+    #packages : [ 'AI-ChatPharo-Tests', 'LLM-Pharo-MCP-Tests', 'LLM-Pharo-ACP-Tests', 'LLM-HuggingFace-Tests', 'AI-PharoInfer-Tests', 'AI-ChatPharo-Tests' ]  }
 }
