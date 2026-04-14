@@ -16,5 +16,6 @@ BaselineOfPharoLLM >> baseline: spec [
 			spec baseline: 'AIPharoInfer' with: [ spec repository: 'github://pharo-llm/pharo-infer:main/src' ].
 			spec baseline: 'LLMPharoRAG' with: [ spec repository: 'github://pharo-llm/pharo-rag:main/src' ].
 			spec baseline: 'AIChatPharo' with: [ spec repository: 'github://pharo-llm/chatpharo:main/src' ].
+			spec baseline: 'LLMStudio' with: [ spec repository: 'github://pharo-llm/pharo-llmstudio:main/src' ].
 			 ]
 ]
