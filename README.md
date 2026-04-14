@@ -1,4 +1,4 @@
-# Pharo-ACP
+# Pharo-LLM
 
 [![Pharo 13 & 14](https://img.shields.io/badge/Pharo-13%20%7C%2014-2c98f0.svg)](https://github.com/pharo-llm/pharo-llm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/pharo-llm/pharo-llm/blob/master/LICENSE)
