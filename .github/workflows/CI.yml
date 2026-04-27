@@ -6,16 +6,18 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    name: ${{ matrix.smalltalk }}
+permissions:
+  contents: read
 
-    permissions:
-      contents: write
+jobs:
+  test:
+    name: Test ${{ matrix.smalltalk }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         smalltalk: [Pharo64-14, Pharo64-13]
 
     steps:
@@ -30,39 +32,77 @@ jobs:
         shell: bash
         timeout-minutes: 15
 
-      - name: Set image name
-        run: |
-          echo "IMAGE_NAME=ubuntu-latest-${{ matrix.smalltalk }}" >> "$GITHUB_ENV"
+  release-p14:
+    name: Build and release Pharo 14 image
+    runs-on: ubuntu-latest
+    needs: test
 
-      - name: Build artifact
-        env:
-          DEFAULT_IMAGE_NAME: TravisCI
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write
+
+    env:
+      SMALLTALK_IMAGE: Pharo64-14
+      DEFAULT_IMAGE_NAME: TravisCI
+      RELEASE_IMAGE_NAME: Pharo-LLM-P14
+      RELEASE_TAG: pharo-llm-1-development
+      RELEASE_TITLE: Pharo-LLM 1 (development)
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hpi-swa/setup-smalltalkCI@v1
+        with:
+          smalltalk-image: ${{ env.SMALLTALK_IMAGE }}
+
+      - name: Build Pharo 14 image
+        run: smalltalkci -s "${{ env.SMALLTALK_IMAGE }}"
+        shell: bash
+        timeout-minutes: 15
+
+      - name: Prepare release files
+        shell: bash
         run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
           mv "$SMALLTALK_CI_BUILD"/* .
 
-          mv -- "$DEFAULT_IMAGE_NAME.image" "$IMAGE_NAME.image"
-          mv -- "$DEFAULT_IMAGE_NAME.changes" "$IMAGE_NAME.changes"
+          mv -- "$DEFAULT_IMAGE_NAME.image" "dist/$RELEASE_IMAGE_NAME.image"
+          mv -- "$DEFAULT_IMAGE_NAME.changes" "dist/$RELEASE_IMAGE_NAME.changes"
 
-          echo "${{ matrix.smalltalk }}" \
-            | sed -e 's/.*\-//g ; s/\..*//g ; s/$/0/' \
-            > pharo.version
+          echo "140" > "dist/pharo.version"
 
-      - name: Zip files
-        id: zip-files
+          cd dist
+          zip -r "$RELEASE_IMAGE_NAME.zip" \
+            "$RELEASE_IMAGE_NAME.image" \
+            "$RELEASE_IMAGE_NAME.changes" \
+            pharo.version
+
+      - name: Create or update GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          zip -r "$IMAGE_NAME.image.zip" "$IMAGE_NAME.image"
-          zip -r "$IMAGE_NAME.changes.zip" "$IMAGE_NAME.changes"
-          zip -r "$IMAGE_NAME-pharo.version.zip" pharo.version
+          set -euo pipefail
 
-          files="$IMAGE_NAME.image.zip;$IMAGE_NAME.changes.zip;$IMAGE_NAME-pharo.version.zip"
-          echo "files-names=$files" >> "$GITHUB_OUTPUT"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes "Development build for Pharo 14 from main."
 
-      - name: Update release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: Xotl/cool-github-releases@v1
-        with:
-          mode: update
-          replace_assets: true
-          tag_name: vX.Y.Z
-          assets: ${{ steps.zip-files.outputs.files-names }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+            gh release upload "$RELEASE_TAG" \
+              "dist/$RELEASE_IMAGE_NAME.zip" \
+              "dist/pharo.version" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "dist/$RELEASE_IMAGE_NAME.zip" \
+              "dist/pharo.version" \
+              --title "$RELEASE_TITLE" \
+              --notes "Development build for Pharo 14 from main." \
+              --prerelease \
+              --latest=false
+          fi
