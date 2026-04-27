@@ -1,66 +1,68 @@
 name: CI
 
-env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 on:
   push:
-    branches:
-        main
+    branches: [main]
   pull_request:
-    branches:
-        main
+    branches: [main]
 
 jobs:
   build:
-    strategy:
-      matrix:
-        smalltalk: [ Pharo64-14, Pharo64-13 ]
-
     runs-on: ubuntu-latest
     name: ${{ matrix.smalltalk }}
 
     permissions:
-            contents: write
+      contents: write
+
+    strategy:
+      matrix:
+        smalltalk: [Pharo64-14, Pharo64-13]
+
     steps:
-        - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-        - uses: hpi-swa/setup-smalltalkCI@v1
-          with:
-            smalltalk-image: ${{ matrix.smalltalk }}
-        - run: smalltalkci -s ${{ matrix.smalltalk }}
-          shell: bash
-          timeout-minutes: 15
+      - uses: hpi-swa/setup-smalltalkCI@v1
+        with:
+          smalltalk-image: ${{ matrix.smalltalk }}
 
+      - name: Run smalltalkCI
+        run: smalltalkci -s "${{ matrix.smalltalk }}"
+        shell: bash
+        timeout-minutes: 15
 
-## Maybe not for each matrix combination but only once for each pharo version ({{ matrix.smalltalk}} ).
-        - name: Set image name
-          run: echo IMAGE_NAME=${{ matrix.os }}-${{ matrix.smalltalk }} >> $GITHUB_ENV # Will be in the image download url in pharo launcher- change carefully.
+      - name: Set image name
+        run: |
+          echo "IMAGE_NAME=ubuntu-latest-${{ matrix.smalltalk }}" >> "$GITHUB_ENV"
 
-        - name: Build artifact
-            
-          env:
-            DEFAULT_IMAGE_NAME: TravisCI # Image name set by smalltalkCI
-          run: |
-            mv $SMALLTALK_CI_BUILD/* .
-            mv $DEFAULT_IMAGE_NAME.image $IMAGE_NAME.image
-            mv $DEFAULT_IMAGE_NAME.changes $IMAGE_NAME.changes
-            echo ${{ matrix.smalltalk }} | sed -e 's/.*\-//g ; s/\..*//g ; s/$/0/' > pharo.version
-        # This pattern transforms as follow: 'Pharo64-9.0' --> '90' and 'Pharo64-10' --> '100'.
-        # Remove every character before '-' ; Remove point and anything after it ; add a '0'.
+      - name: Build artifact
+        env:
+          DEFAULT_IMAGE_NAME: TravisCI
+        run: |
+          mv "$SMALLTALK_CI_BUILD"/* .
 
-        - name: Zip files
-        # Store a string variable: the zip files names separated by semicolons.
-          id: zip-files
-          run: |
-            for i in ${{env.IMAGE_NAME}}*; do zip -r "${i%/}.zip" "$i"; done
-            echo files-names=$(ls -m ${{env.IMAGE_NAME}}*.zip) | sed -e 's/, /;/g' >> $GITHUB_OUTPUT
-      
-        - name: Update release
-          uses: Xotl/cool-github-releases@v1 # See https://github.com/actions-marketplace-validations/Xotl_cool-github-releases
-          with:
-            mode: update
-            replace_assets: true
-            tag_name: 'vX.Y.Z' #your release tag
-            assets: ${{ steps.zip-files.outputs.files-names }}
-            github_token: ${{ secrets.GITHUB_TOKEN }}
+          mv -- "$DEFAULT_IMAGE_NAME.image" "$IMAGE_NAME.image"
+          mv -- "$DEFAULT_IMAGE_NAME.changes" "$IMAGE_NAME.changes"
+
+          echo "${{ matrix.smalltalk }}" \
+            | sed -e 's/.*\-//g ; s/\..*//g ; s/$/0/' \
+            > pharo.version
+
+      - name: Zip files
+        id: zip-files
+        run: |
+          zip -r "$IMAGE_NAME.image.zip" "$IMAGE_NAME.image"
+          zip -r "$IMAGE_NAME.changes.zip" "$IMAGE_NAME.changes"
+          zip -r "$IMAGE_NAME-pharo.version.zip" pharo.version
+
+          files="$IMAGE_NAME.image.zip;$IMAGE_NAME.changes.zip;$IMAGE_NAME-pharo.version.zip"
+          echo "files-names=$files" >> "$GITHUB_OUTPUT"
+
+      - name: Update release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: Xotl/cool-github-releases@v1
+        with:
+          mode: update
+          replace_assets: true
+          tag_name: vX.Y.Z
+          assets: ${{ steps.zip-files.outputs.files-names }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
