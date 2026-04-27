@@ -1,88 +1,66 @@
 name: CI
 
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches:
+        main
   pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
+    branches:
+        main
 
 jobs:
   build:
     strategy:
-      fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        smalltalk: [Pharo64-14, Pharo64-13]
+        smalltalk: [ Pharo64-14, Pharo64-13 ]
 
-    runs-on: ${{ matrix.os }}
-    name: ${{ matrix.os }} / ${{ matrix.smalltalk }}
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: hpi-swa/setup-smalltalkCI@v1
-        with:
-          smalltalk-image: ${{ matrix.smalltalk }}
-
-      - run: smalltalkci -s ${{ matrix.smalltalk }}
-        shell: bash
-        timeout-minutes: 15
-
-      - name: Build artifact
-        shell: bash
-        env:
-          IMAGE_NAME: ${{ matrix.os }}-${{ matrix.smalltalk }}
-          DEFAULT_IMAGE_NAME: TravisCI
-        run: |
-          set -euo pipefail
-
-          mv "$SMALLTALK_CI_BUILD"/* .
-          mv "$DEFAULT_IMAGE_NAME.image" "$IMAGE_NAME.image"
-          mv "$DEFAULT_IMAGE_NAME.changes" "$IMAGE_NAME.changes"
-
-          echo "${{ matrix.smalltalk }}" | sed -e 's/.*-//g ; s/\..*//g ; s/$/0/' > pharo.version
-
-          zip -r "$IMAGE_NAME.image.zip" "$IMAGE_NAME.image"
-          zip -r "$IMAGE_NAME.changes.zip" "$IMAGE_NAME.changes"
-
-      - name: Upload image artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-${{ matrix.os }}-${{ matrix.smalltalk }}
-          path: |
-            *.image.zip
-            *.changes.zip
-          if-no-files-found: error
-
-  release:
-    needs: build
     runs-on: ubuntu-latest
-
-    # Release only on version tags, not PRs and not every push to main.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    name: ${{ matrix.smalltalk }}
 
     permissions:
-      contents: write
-
+            contents: write
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets
-          merge-multiple: true
+        - uses: actions/checkout@v6
 
-      - name: Publish release assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
+        - uses: hpi-swa/setup-smalltalkCI@v1
+          with:
+            smalltalk-image: ${{ matrix.smalltalk }}
+        - run: smalltalkci -s ${{ matrix.smalltalk }}
+          shell: bash
+          timeout-minutes: 15
 
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes ""
 
-          gh release upload "$GITHUB_REF_NAME" release-assets/*.zip --clobber
+## Maybe not for each matrix combination but only once for each pharo version ({{ matrix.smalltalk}} ).
+        - name: Set image name
+          run: echo IMAGE_NAME=${{ matrix.os }}-${{ matrix.smalltalk }} >> $GITHUB_ENV # Will be in the image download url in pharo launcher- change carefully.
+
+        - name: Build artifact
+            
+          env:
+            DEFAULT_IMAGE_NAME: TravisCI # Image name set by smalltalkCI
+          run: |
+            mv $SMALLTALK_CI_BUILD/* .
+            mv $DEFAULT_IMAGE_NAME.image $IMAGE_NAME.image
+            mv $DEFAULT_IMAGE_NAME.changes $IMAGE_NAME.changes
+            echo ${{ matrix.smalltalk }} | sed -e 's/.*\-//g ; s/\..*//g ; s/$/0/' > pharo.version
+        # This pattern transforms as follow: 'Pharo64-9.0' --> '90' and 'Pharo64-10' --> '100'.
+        # Remove every character before '-' ; Remove point and anything after it ; add a '0'.
+
+        - name: Zip files
+        # Store a string variable: the zip files names separated by semicolons.
+          id: zip-files
+          run: |
+            for i in ${{env.IMAGE_NAME}}*; do zip -r "${i%/}.zip" "$i"; done
+            echo files-names=$(ls -m ${{env.IMAGE_NAME}}*.zip) | sed -e 's/, /;/g' >> $GITHUB_OUTPUT
+      
+        - name: Update release
+          uses: Xotl/cool-github-releases@v1 # See https://github.com/actions-marketplace-validations/Xotl_cool-github-releases
+          with:
+            mode: update
+            replace_assets: true
+            tag_name: 'vX.Y.Z' #your release tag
+            assets: ${{ steps.zip-files.outputs.files-names }}
+            github_token: ${{ secrets.GITHUB_TOKEN }}
