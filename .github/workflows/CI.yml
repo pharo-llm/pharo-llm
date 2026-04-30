@@ -34,7 +34,7 @@ jobs:
 
   release-p14:
     name: Build and release Pharo 14 image
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     needs: test
 
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -46,8 +46,8 @@ jobs:
       SMALLTALK_IMAGE: Pharo64-14
       DEFAULT_IMAGE_NAME: TravisCI
       RELEASE_IMAGE_NAME: Pharo-LLM-P14
-      RELEASE_TAG: pharo-llm-1-development
-      RELEASE_TITLE: Pharo-LLM 1 (development)
+      RELEASE_TAG: pharo-llm-14-development
+      RELEASE_TITLE: Pharo-LLM 14 (development)
 
     steps:
       - uses: actions/checkout@v6
