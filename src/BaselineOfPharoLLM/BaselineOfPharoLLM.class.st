@@ -13,3 +13,5 @@ BaselineOfPharoLLM >> baseline: spec [
 			spec baseline: 'AIChatPharo' with: [ spec repository: 'github://pharo-llm/chatpharo:main/src' ].
 			 ]
 ]
+
+
