@@ -79,6 +79,7 @@ jobs:
           zip -r "$RELEASE_IMAGE_NAME.zip" \
             "$RELEASE_IMAGE_NAME.image" \
             "$RELEASE_IMAGE_NAME.changes" \
+            *.sources \
             pharo.version
 
       - name: Create or update GitHub release
