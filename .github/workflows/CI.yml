@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,27 +20,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        smalltalk: [Pharo64-14, Pharo64-13]
+        os:
+          - ubuntu-latest
+          - macos-latest
+        smalltalk:
+          - Pharo64-14
+          - Pharo64-13
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
-      - uses: hpi-swa/setup-smalltalkCI@v1
+      - name: Set up smalltalkCI
+        uses: hpi-swa/setup-smalltalkCI@v1
         with:
           smalltalk-image: ${{ matrix.smalltalk }}
 
-      - name: Run smalltalkCI
-        run: smalltalkci -s "${{ matrix.smalltalk }}"
+      - name: Run tests
         shell: bash
+        run: smalltalkci -s "${{ matrix.smalltalk }}"
         timeout-minutes: 15
 
   release-p14:
     name: Build and release Pharo 14 image
     runs-on: macos-latest
-    needs: test
+    needs:
+      - test
 
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name != 'pull_request'
+      && github.ref == 'refs/heads/main'
 
     permissions:
       contents: write
@@ -50,15 +62,19 @@ jobs:
       RELEASE_TITLE: Pharo-LLM 14 (development)
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-      - uses: hpi-swa/setup-smalltalkCI@v1
+      - name: Set up smalltalkCI
+        uses: hpi-swa/setup-smalltalkCI@v1
         with:
           smalltalk-image: ${{ env.SMALLTALK_IMAGE }}
 
       - name: Build Pharo 14 image
-        run: smalltalkci -s "${{ env.SMALLTALK_IMAGE }}"
         shell: bash
+        run: smalltalkci -s "${{ env.SMALLTALK_IMAGE }}"
         timeout-minutes: 15
 
       - name: Prepare release files
@@ -66,21 +82,80 @@ jobs:
         run: |
           set -euo pipefail
 
+          rm -rf dist
           mkdir -p dist
 
-          mv "$SMALLTALK_CI_BUILD"/* .
+          echo "SMALLTALK_CI_BUILD=$SMALLTALK_CI_BUILD"
+          echo "Files produced by smalltalkCI:"
+          find "$SMALLTALK_CI_BUILD" -maxdepth 2 -type f -print
 
-          mv -- "$DEFAULT_IMAGE_NAME.image" "dist/$RELEASE_IMAGE_NAME.image"
-          mv -- "$DEFAULT_IMAGE_NAME.changes" "dist/$RELEASE_IMAGE_NAME.changes"
+          IMAGE_FILE="$SMALLTALK_CI_BUILD/$DEFAULT_IMAGE_NAME.image"
+          CHANGES_FILE="$SMALLTALK_CI_BUILD/$DEFAULT_IMAGE_NAME.changes"
 
-          echo "140" > "dist/pharo.version"
+          if [[ ! -f "$IMAGE_FILE" ]]; then
+            echo "::error::Image file not found: $IMAGE_FILE"
+            exit 1
+          fi
+
+          if [[ ! -f "$CHANGES_FILE" ]]; then
+            echo "::error::Changes file not found: $CHANGES_FILE"
+            exit 1
+          fi
+
+          SOURCES_FILE="$(
+            find "$SMALLTALK_CI_BUILD" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.sources' \
+              -print \
+              -quit
+          )"
+
+          if [[ -z "$SOURCES_FILE" ]]; then
+            echo "::error::No Pharo .sources file found in $SMALLTALK_CI_BUILD"
+            find "$SMALLTALK_CI_BUILD" -maxdepth 2 -type f -print
+            exit 1
+          fi
+
+          SOURCES_NAME="$(basename "$SOURCES_FILE")"
+
+          echo "Found image: $IMAGE_FILE"
+          echo "Found changes: $CHANGES_FILE"
+          echo "Found sources: $SOURCES_FILE"
+
+          cp "$IMAGE_FILE" \
+            "dist/$RELEASE_IMAGE_NAME.image"
+
+          cp "$CHANGES_FILE" \
+            "dist/$RELEASE_IMAGE_NAME.changes"
+
+          cp "$SOURCES_FILE" \
+            "dist/$SOURCES_NAME"
+
+          printf '140\n' > "dist/pharo.version"
+
+          # Create a visible archive containing the repository source code.
+          git archive \
+            --format=zip \
+            --output="dist/$RELEASE_IMAGE_NAME-source.zip" \
+            HEAD
 
           cd dist
-          zip -r "$RELEASE_IMAGE_NAME.zip" \
+
+          zip -9 "$RELEASE_IMAGE_NAME.zip" \
             "$RELEASE_IMAGE_NAME.image" \
             "$RELEASE_IMAGE_NAME.changes" \
-            *.sources \
+            "$SOURCES_NAME" \
             pharo.version
+
+          echo "Release files:"
+          ls -lah
+
+          echo "Pharo image ZIP contents:"
+          unzip -l "$RELEASE_IMAGE_NAME.zip"
+
+          echo "Repository source ZIP contents:"
+          unzip -l "$RELEASE_IMAGE_NAME-source.zip" | head -100
 
       - name: Create or update GitHub release
         shell: bash
@@ -89,21 +164,58 @@ jobs:
         run: |
           set -euo pipefail
 
+          SOURCES_FILE="$(
+            find dist \
+              -maxdepth 1 \
+              -type f \
+              -name '*.sources' \
+              -print \
+              -quit
+          )"
+
+          if [[ -z "$SOURCES_FILE" ]]; then
+            echo "::error::No .sources file found in dist"
+            find dist -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+          echo "Files that will be uploaded:"
+          ls -lah \
+            "dist/$RELEASE_IMAGE_NAME.zip" \
+            "dist/$RELEASE_IMAGE_NAME-source.zip" \
+            "dist/pharo.version" \
+            "$SOURCES_FILE"
+
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Updating existing release: $RELEASE_TAG"
+
             gh release edit "$RELEASE_TAG" \
               --title "$RELEASE_TITLE" \
-              --notes "Development build for Pharo 14 from main."
+              --notes "Development build for Pharo 14 from main." \
+              --prerelease
 
             gh release upload "$RELEASE_TAG" \
               "dist/$RELEASE_IMAGE_NAME.zip" \
+              "dist/$RELEASE_IMAGE_NAME-source.zip" \
               "dist/pharo.version" \
+              "$SOURCES_FILE" \
               --clobber
           else
+            echo "Creating release: $RELEASE_TAG"
+
             gh release create "$RELEASE_TAG" \
               "dist/$RELEASE_IMAGE_NAME.zip" \
+              "dist/$RELEASE_IMAGE_NAME-source.zip" \
               "dist/pharo.version" \
+              "$SOURCES_FILE" \
+              --target "$GITHUB_SHA" \
               --title "$RELEASE_TITLE" \
               --notes "Development build for Pharo 14 from main." \
               --prerelease \
               --latest=false
           fi
+
+          echo "Assets attached to the release:"
+          gh release view "$RELEASE_TAG" \
+            --json assets \
+            --jq '.assets[].name'
