@@ -226,7 +226,7 @@ jobs:
           cmake -E tar tf "$RELEASE_IMAGE_NAME-$PLATFORM_ID.zip"
 
       - name: Upload release image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pharo-llm-p14-${{ matrix.platform }}
           path: |
